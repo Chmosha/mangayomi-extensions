@@ -7,7 +7,7 @@ const mangayomiSources = [{
     "typeSource": "single",
     "isManga": true,
     "isNsfw": true,
-    "version": "0.0.3",
+    "version": "0.0.5",
     "pkgPath": "manga/src/ru/mangalib.js"
 }];
 
@@ -15,38 +15,27 @@ class DefaultExtension extends MProvider {
     constructor() {
         super();
         this.client = new Client();
-        this.apiHeaders = {
+        // Настройка заголовков. Site-Id: 1 — это идентификатор Mangalib
+        this.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Referer': 'https://mangalib.me/',
             'Accept': 'application/json, text/plain, */*',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Site-Id': '1', // Обязательно для Mangalib
-            'Referer': 'https://mangalib.me/'
+            'Site-Id': '1' 
         };
-    }
-
-    parseStatus(status) {
-        const statuses = {
-            "Онгоинг": 0,
-            "Завершён": 1,
-            "Приостановлен": 2,
-            "Выпуск прекращён": 3,
-            "Анонс": 4
-        };
-        return statuses[status] ?? 5;
     }
 
     async parseMangaList(url) {
-        const res = await this.client.get(url, this.apiHeaders);
+        const res = await this.client.get(url, this.headers);
         const json = JSON.parse(res.body);
-        
-        let mangas = json.data.map(manga => ({
+        const mangas = json.data.map(manga => ({
             name: manga.rus_name || manga.name,
             imageUrl: manga.cover?.default || manga.cover?.main,
             link: manga.slug_url || manga.slug
         }));
-        
-        return { 
-            "list": mangas, 
-            "hasNextPage": !!json.links?.next 
+
+        return {
+            list: mangas,
+            hasNextPage: !!json.links?.next
         };
     }
 
@@ -60,22 +49,12 @@ class DefaultExtension extends MProvider {
 
     async search(query, page, filters) {
         let url = `${this.source.apiUrl}/manga?q=${encodeURIComponent(query)}&page=${page}`;
-
+        // Логика фильтров (упрощенная для стабильности)
         if (filters && filters.length > 0) {
             for (const filter of filters) {
                 if (filter.type === 'sort' && filter.state) {
                     const sortVal = filter.values[filter.state.index].value;
-                    const sortType = filter.state.ascending ? 'asc' : 'desc';
-                    url += `&sort_by=${sortVal}&sort_type=${sortType}`;
-                }
-                if (filter.type === 'type' && filter.state) {
-                    filter.state.forEach(f => { if (f.state) url += `&types[]=${f.value}`; });
-                }
-                if (filter.type === 'genre' && filter.state) {
-                    filter.state.forEach(f => {
-                        if (f.state === 1) url += `&genres[]=${f.value}`;
-                        else if (f.state === 2) url += `&genres_exclude[]=${f.value}`;
-                    });
+                    url += `&sort_by=${sortVal}&sort_type=${filter.state.ascending ? 'asc' : 'desc'}`;
                 }
             }
         }
@@ -83,23 +62,20 @@ class DefaultExtension extends MProvider {
     }
 
     async getDetail(url) {
-        // Запрос основной информации
-        const infoRes = await this.client.get(`${this.source.apiUrl}/manga/${url}?fields[]=summary&fields[]=genres&fields[]=authors&fields[]=artists&fields[]=status`, this.apiHeaders);
+        const infoRes = await this.client.get(`${this.source.apiUrl}/manga/${url}?fields[]=summary&fields[]=genres&fields[]=authors&fields[]=status`, this.headers);
         const info = JSON.parse(infoRes.body).data;
 
-        // Запрос списка глав
-        const chapterRes = await this.client.get(`${this.source.apiUrl}/manga/${url}/chapters`, this.apiHeaders);
-        const chapters = JSON.parse(chapterRes.body).data;
-        
+        const chapterRes = await this.client.get(`${this.source.apiUrl}/manga/${url}/chapters`, this.headers);
+        const chaptersData = JSON.parse(chapterRes.body).data;
+
         return {
             name: info.rus_name || info.name,
-            imageUrl: info.cover?.default || info.cover?.main,
+            imageUrl: info.cover?.default,
             author: info.authors?.map(x => x.name).join(', '),
-            artist: info.artists?.map(x => x.name).join(', '),
-            status: this.parseStatus(info.status?.label),
+            status: { "Онгоинг": 0, "Завершён": 1, "Приостановлен": 2 }[info.status?.label] ?? 5,
             description: info.summary,
             genre: info.genres?.map(x => x.name),
-            chapters: chapters.map(c => ({
+            chapters: chaptersData.map(c => ({
                 name: `Том ${c.volume} Глава ${c.number}${c.name ? ': ' + c.name : ''}`,
                 url: `${this.source.apiUrl}/manga/${url}/chapter?number=${c.number}&volume=${c.volume}`,
                 dateUpload: c.branches?.[0]?.created_at ? new Date(c.branches[0].created_at).valueOf().toString() : null,
@@ -109,49 +85,33 @@ class DefaultExtension extends MProvider {
     }
 
     async getPageList(url) {
-        // Получаем настройки сервера
-        const serverId = new SharedPreferences().get('imageServer') || 'main';
-
-        // Получаем список серверов из констант
-        const constRes = await this.client.get(`${this.source.apiUrl}/constants?fields[]=imageServers`, this.apiHeaders);
-        const servers = JSON.parse(constRes.body).data.imageServers;
-        const selectedServer = servers.find(x => x.id === serverId)?.url || servers[0].url;
-
-        // Получаем страницы главы
-        const res = await this.client.get(url, this.apiHeaders);
-        const chapter = JSON.parse(res.body).data;
+        const res = await this.client.get(url, this.headers);
+        const chapterData = JSON.parse(res.body).data;
         
-        return chapter.pages.map(img => ({
-            url: selectedServer + img.url, 
-            headers: this.apiHeaders
+        // Получаем сервер из настроек или используем основной
+        const serverId = new SharedPreferences().get('imageServer') || 'main';
+        const constRes = await this.client.get(`${this.source.apiUrl}/constants?fields[]=imageServers`, this.headers);
+        const servers = JSON.parse(constRes.body).data.imageServers;
+        const selectedServer = servers.find(s => s.id === serverId)?.url || servers[0].url;
+
+        return chapterData.pages.map(img => ({
+            url: selectedServer + img.url,
+            headers: this.headers
         }));
     }
 
     getFilterList() {
-        return [
-            {
-                type_name: "SortFilter",
-                type: "sort",
-                name: "Сортировка",
-                state: { index: 0, ascending: false },
-                values: [
-                    { name: 'По популярности', value: 'views' },
-                    { name: 'По рейтингу', value: 'rate_avg' },
-                    { name: 'По дате обновления', value: 'last_chapter_at' },
-                    { name: 'По дате релиза', value: 'releaseDate' }
-                ]
-            },
-            {
-                type_name: "GroupFilter",
-                type: "type",
-                name: "Тип",
-                state: [
-                    { type_name: 'CheckBox', name: "Манга", value: "1" },
-                    { type_name: 'CheckBox', name: "Манхва", value: "5" },
-                    { type_name: 'CheckBox', name: "Маньхуа", value: "6" }
-                ]
-            }
-        ];
+        return [{
+            type_name: "SortFilter",
+            type: "sort",
+            name: "Сортировка",
+            state: { index: 0, ascending: false },
+            values: [
+                { name: 'По популярности', value: 'views' },
+                { name: 'По рейтингу', value: 'rate_avg' },
+                { name: 'Дата обновления', value: 'last_chapter_at' }
+            ]
+        }];
     }
 
     getSourcePreferences() {
