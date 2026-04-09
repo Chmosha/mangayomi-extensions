@@ -1,7 +1,7 @@
-const mangayomiSources = [{"name":"Mangalib","lang":"ru","baseUrl":"https://mangalib.me","apiUrl":"https://api.lib.social/api","iconUrl":"https://mangalib.org/static/images/logo/ml/icon-180.png","typeSource":"single","itemType":0,"version":"0.1.6","pkgPath":"manga/src/ru/mangalib.js","isNsfw":true,"hasCloudflare":false}];
+const mangayomiSources = [{"name":"Mangalib","lang":"ru","baseUrl":"https://mangalib.me","apiUrl":"https://api.lib.social/api","iconUrl":"https://mangalib.org/static/images/logo/ml/icon-180.png","typeSource":"single","itemType":0,"version":"0.1.7","pkgPath":"manga/src/ru/mangalib.js","isNsfw":true,"hasCloudflare":false}];
 
-class DefaultExtension extends MProvider {
-    constructor () {
+class Mangalib extends MProvider {
+    constructor() {
         super();
         this.client = new Client();
         this.apiHeaders = {
@@ -39,10 +39,8 @@ class DefaultExtension extends MProvider {
     async getDetail(url) {
         const infoRes = await this.client.get(`${this.source.apiUrl}/manga/${url}?fields[]=summary&fields[]=genres&fields[]=authors&fields[]=status`, this.apiHeaders);
         const chapterRes = await this.client.get(`${this.source.apiUrl}/manga/${url}/chapters`, this.apiHeaders);
-        
         const info = JSON.parse(infoRes.body).data;
         const chapters = JSON.parse(chapterRes.body).data;
-        
         const statusMap = { "Онгоинг": 0, "Завершён": 1, "Приостановлен": 2, "Выпуск прекращён": 3, "Анонс": 4 };
 
         return {
