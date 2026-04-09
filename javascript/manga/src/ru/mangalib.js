@@ -1,10 +1,9 @@
-const mangayomiSources = [{"name":"Mangalib","id":737631136,"baseUrl":"https://mangalib.me","lang":"ru","typeSource":"single","iconUrl":"https://mangalib.org/static/images/logo/ml/icon-180.png","dateFormat":"","dateFormatLocale":"","isNsfw":true,"hasCloudflare":false,"sourceCodeUrl":"https://raw.githubusercontent.com/Chmosha/mangayomi-extensions/main/manga/src/ru/mangalib.js","apiUrl":"https://api.lib.social/api","version":"0.2.7","isManga":true,"itemType":0,"isFullData":false,"appMinVerReq":"0.5.0","additionalParams":"","sourceCodeLanguage":1,"notes":""}];
+const mangayomiSources = [{"name":"Mangalib","id":737631136,"baseUrl":"https://mangalib.me","lang":"ru","typeSource":"single","iconUrl":"https://mangalib.org/static/images/logo/ml/icon-180.png","dateFormat":"","dateFormatLocale":"","isNsfw":true,"hasCloudflare":false,"sourceCodeUrl":"https://raw.githubusercontent.com/Chmosha/mangayomi-extensions/main/manga/src/ru/mangalib.js","apiUrl":"https://api.lib.social/api","version":"0.2.8","isManga":true,"itemType":0,"isFullData":false,"appMinVerReq":"0.5.0","additionalParams":"","sourceCodeLanguage":1,"notes":""}];
 
 class DefaultExtension extends MProvider {
     constructor() {
         super();
         this.client = new Client();
-        // Используем прямую ссылку, чтобы избежать ошибки "Source is not initialized"
         this.apiBaseUrl = "https://api.lib.social/api";
         this.apiHeaders = {
             'accept': 'application/json, text/plain, */*',
@@ -117,3 +116,6 @@ class DefaultExtension extends MProvider {
         }];
     }
 }
+
+// ВАЖНО: Anymex ищет переменную 'extention' (с ошибкой в слове), чтобы запустить код
+const extention = new DefaultExtension();
