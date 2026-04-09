@@ -1,27 +1,11 @@
-const mangayomiSources = [{
-    "name": "Mangalib",
-    "id": 737631136,
-    "lang": "ru",
-    "baseUrl": "https://mangalib.me",
-    "apiUrl": "https://api.lib.social/api",
-    "iconUrl": "https://mangalib.org/static/images/logo/ml/icon-180.png",
-    "typeSource": "single",
-    "itemType": 0,
-    "isManga": true,
-    "isNsfw": true,
-    "version": "0.3.0",
-    "dateFormat": "",
-    "dateFormatLocale": "",
-    "pkgPath": "manga/src/ru/mangalib.js",
-    "appMinVerReq": "0.5.0",
-    "sourceCodeLanguage": 1
-}];
+var mangayomiSources = [{"name":"Mangalib","id":737631136,"baseUrl":"https://mangalib.me","lang":"ru","typeSource":"single","iconUrl":"https://mangalib.org/static/images/logo/ml/icon-180.png","dateFormat":"","dateFormatLocale":"","isNsfw":true,"hasCloudflare":false,"sourceCodeUrl":"https://raw.githubusercontent.com/Chmosha/mangayomi-extensions/main/manga/src/ru/mangalib.js","apiUrl":"https://api.lib.social/api","version":"0.3.5","isManga":true,"itemType":0,"isFullData":false,"appMinVerReq":"0.5.0","additionalParams":"","sourceCodeLanguage":1,"notes":""}];
 
 class DefaultExtension extends MProvider {
-    constructor () {
+    constructor() {
         super();
         this.client = new Client();
-        this.apiHeaders = {
+        // ВАЖНО: Не используем this.source здесь, чтобы не было ошибки "not initialized"
+        this.headers = {
             'accept': 'application/json, text/plain, */*',
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Site-Id': '1',
@@ -30,24 +14,22 @@ class DefaultExtension extends MProvider {
     }
 
     parseStatus(status) {
-        var statuses = {
-            "Онгоинг": 0,
-            "Завершён": 1,
-            "Приостановлен": 2,
-            "Выпуск прекращён": 3,
-            "Анонс": 4
-        };
-        return statuses[status] !== undefined ? statuses[status] : 5;
+        if (status === "Онгоинг") return 0;
+        if (status === "Завершён") return 1;
+        if (status === "Приостановлен") return 2;
+        if (status === "Выпуск прекращён") return 3;
+        if (status === "Анонс") return 4;
+        return 5;
     }
 
     async parseMangaList(url) {
-        const res = await this.client.get(url, this.apiHeaders);
-        const json = JSON.parse(res.body);
-        const mangas = json.data.map(function(manga) {
+        var res = await this.client.get(url, this.headers);
+        var json = JSON.parse(res.body);
+        var mangas = json.data.map(function(m) {
             return {
-                name: manga.rus_name || manga.name,
-                imageUrl: manga.cover ? manga.cover.default : "",
-                link: manga.slug_url || manga.slug
+                name: m.rus_name || m.name,
+                imageUrl: m.cover ? (m.cover.default || m.cover.main) : "",
+                link: m.slug_url || m.slug
             };
         });
         return { "list": mangas, "hasNextPage": (json.links && json.links.next) ? true : false };
@@ -62,74 +44,60 @@ class DefaultExtension extends MProvider {
     }
 
     async search(query, page, filters) {
-        let url = "https://api.lib.social/api/manga?q=" + encodeURIComponent(query);
+        var url = "https://api.lib.social/api/manga?q=" + encodeURIComponent(query);
         
-        if (!filters || filters.length == 0) {
+        if (!filters || filters.length === 0) {
             return await this.parseMangaList(url + "&page=" + page);
         }
 
-        // 0: Тип
-        for (const filter of filters[0].state) {
-            if (filter.state == true) url += "&types[]=" + filter.value;
+        // Фильтры по списку (как в оригинале)
+        if (filters[0] && filters[0].state) {
+            for (var i = 0; i < filters[0].state.length; i++) {
+                if (filters[0].state[i].state) url += "&types[]=" + filters[0].state[i].value;
+            }
         }
-        // 1: Возрастной рейтинг
-        for (const filter of filters[1].state) {
-            if (filter.state == true) url += "&caution[]=" + filter.value;
+        if (filters[1] && filters[1].state) {
+            for (var i = 0; i < filters[1].state.length; i++) {
+                if (filters[1].state[i].state) url += "&caution[]=" + filters[1].state[i].value;
+            }
         }
-
-        // 2: Количество глав
-        const minChapF = filters[2].state[0];
-        const maxChapF = filters[2].state[1];
-        const minChap = minChapF.values[minChapF.state].value;
-        const maxChap = maxChapF.values[maxChapF.state].value;
-        if (minChap) url += "&chap_count_min=" + minChap;
-        if (maxChap) url += "&chap_count_max=" + maxChap;
-
-        // 3: Год
-        const minYearF = filters[3].state[0];
-        const maxYearF = filters[3].state[1];
-        const minYear = minYearF.values[minYearF.state].value;
-        const maxYear = maxYearF.values[maxYearF.state].value;
-        if (minYear) url += "&year_min=" + minYear;
-        if (maxYear) url += "&year_max=" + maxYear;
-
-        // 4: Жанры
-        for (const filter of filters[4].state) {
-            if (filter.state == 1) url += "&genres[]=" + filter.value;
-            else if (filter.state == 2) url += "&genres_exclude[]=" + filter.value;
-        }
-        // 5: Статус титула
-        for (const filter of filters[5].state) {
-            if (filter.state == true) url += "&status[]=" + filter.value;
-        }
-        // 6: Статус перевода
-        for (const filter of filters[6].state) {
-            if (filter.state == true) url += "&scanlate_status[]=" + filter.value;
-        }
-        // 7: Формат
-        for (const filter of filters[7].state) {
-            if (filter.state == 1) url += "&format[]=" + filter.value;
-            else if (filter.state == 2) url += "&format_exclude[]=" + filter.value;
+        
+        // Главы и Год
+        if (filters[2] && filters[2].state) {
+            var minCh = filters[2].state[0].values[filters[2].state[0].state].value;
+            var maxCh = filters[2].state[1].values[filters[2].state[1].state].value;
+            if (minCh) url += "&chap_count_min=" + minCh;
+            if (maxCh) url += "&chap_count_max=" + maxCh;
         }
 
-        // 8: Сортировка
-        const sortVal = filters[8].values[filters[8].state.index].value;
-        const sortType = filters[8].state.ascending ? 'asc' : 'desc';
-        if (sortVal) url += "&sort_by=" + sortVal;
-        url += "&sort_type=" + sortType;
+        // Жанры (TriState)
+        if (filters[4] && filters[4].state) {
+            for (var i = 0; i < filters[4].state.length; i++) {
+                var f = filters[4].state[i];
+                if (f.state === 1) url += "&genres[]=" + f.value;
+                else if (f.state === 2) url += "&genres_exclude[]=" + f.value;
+            }
+        }
+
+        // Сортировка
+        if (filters[8]) {
+            var sortVal = filters[8].values[filters[8].state.index].value;
+            var sortType = filters[8].state.ascending ? 'asc' : 'desc';
+            if (sortVal) url += "&sort_by=" + sortVal;
+            url += "&sort_type=" + sortType;
+        }
 
         return await this.parseMangaList(url + "&page=" + page);
     }
 
-    async getDetail(url) {
-        const infoRes = await this.client.get("https://api.lib.social/api/manga/" + url + "?fields[]=chap_count&fields[]=summary&fields[]=genres&fields[]=authors&fields[]=artists&fields[]=status", this.apiHeaders);
-        const chapterRes = await this.client.get("https://api.lib.social/api/manga/" + url + "/chapters", this.apiHeaders);
+    async getDetail(link) {
+        var infoRes = await this.client.get("https://api.lib.social/api/manga/" + link + "?fields[]=summary&fields[]=genres&fields[]=authors&fields[]=artists&fields[]=status", this.headers);
+        var chapterRes = await this.client.get("https://api.lib.social/api/manga/" + link + "/chapters", this.headers);
         
-        const info = JSON.parse(infoRes.body).data;
-        const chapters = JSON.parse(chapterRes.body).data;
-        const chapterBaseUrl = "https://api.lib.social/api/manga/" + url + "/chapter";
-        
-        const self = this;
+        var info = JSON.parse(infoRes.body).data;
+        var chapters = JSON.parse(chapterRes.body).data;
+        var self = this;
+
         return {
             name: info.rus_name || info.name,
             imageUrl: info.cover ? info.cover.default : "",
@@ -141,7 +109,7 @@ class DefaultExtension extends MProvider {
             chapters: chapters.map(function(c) {
                 return {
                     name: "Том " + c.volume + " Глава " + c.number + (c.name ? ": " + c.name : ""),
-                    url: chapterBaseUrl + "?number=" + c.number + "&volume=" + c.volume,
+                    url: "https://api.lib.social/api/manga/" + link + "/chapter?number=" + c.number + "&volume=" + c.volume,
                     dateUpload: (c.branches && c.branches[0]) ? new Date(c.branches[0].created_at).valueOf().toString() : null,
                     scanlator: (c.branches && c.branches[0] && c.branches[0].teams) ? c.branches[0].teams.map(function(t) { return t.name; }).join(', ') : ""
                 };
@@ -150,158 +118,51 @@ class DefaultExtension extends MProvider {
     }
 
     async getPageList(url) {
-        const pref = new SharedPreferences();
-        const serverId = pref.get('imageServer') || 'main';
+        var pref = new SharedPreferences();
+        var serverId = pref.get('imageServer') || 'main';
 
-        let res = await this.client.get("https://api.lib.social/api/constants?fields[]=imageServers", this.apiHeaders);
-        const imageServers = JSON.parse(res.body).data.imageServers;
-        
-        let imageServer = imageServers[0].url;
-        for (let i = 0; i < imageServers.length; i++) {
-            if (imageServers[i].id === serverId) {
-                imageServer = imageServers[i].url;
-                break;
-            }
+        var constRes = await this.client.get("https://api.lib.social/api/constants?fields[]=imageServers", this.headers);
+        var servers = JSON.parse(constRes.body).data.imageServers;
+        var selectedUrl = servers[0].url;
+        for (var i = 0; i < servers.length; i++) {
+            if (servers[i].id === serverId) { selectedUrl = servers[i].url; break; }
         }
 
-        res = await this.client.get(url, this.apiHeaders);
-        const chapter = JSON.parse(res.body).data;
-        const headers = this.apiHeaders;
+        var res = await this.client.get(url, this.headers);
+        var chapter = JSON.parse(res.body).data;
+        var h = this.headers;
         return chapter.pages.map(function(img) {
-            return { url: imageServer + img.url, headers: headers };
+            return { url: selectedUrl + img.url, headers: h };
         });
     }
 
     getFilterList() {
-        const chapterCounts = ['1','5','10','20','30','40','50','100','200','500','1000','2000','5000','10000'].map(x => [x, x]);
-        const years = [...range(1980, new Date().getFullYear() + 1, -1), ...range(1930, 1971, -10)].map(x => {
-            x = x.toString();
-            return [x, x];
-        });
+        var chapterCounts = ['1','5','10','20','30','40','50','100','200','500','1000'].map(function(x){ return [x, x]; });
+        var years = range(1980, 2025, -1).map(function(x){ return [x.toString(), x.toString()]; });
         return [
-            {
-                type_name: "GroupFilter",
-                type: "type",
-                name: "Тип",
-                state: [
-                    ["Манга", 1], ["OEL-манга", 4], ["Манхва", 5], ["Маньхуа", 6], ["Руманга", 8], ["Комикс", 9]
-                ].map(x => ({ type_name: 'CheckBox', name: x[0], value: "" + x[1] }))
-            },
-            {
-                type_name: "GroupFilter",
-                type: "age_restriction",
-                name: "возрастной рейтинг",
-                state: [
-                    ["Нет", 0], ["6+", 1], ["12+", 2], ["16+", 3], ["18+", 4]
-                ].map(x => ({ type_name: 'CheckBox', name: x[0], value: "" + x[1] }))
-            },
-            {
-                type_name: "GroupFilter",
-                type: "chapter_count",
-                name: "Количество глав",
-                state: [
-                    {
-                        type_name: "SelectFilter",
-                        type: "chap_count_min",
-                        name: "от",
-                        state: 0,
-                        values: [['от', ''], ...chapterCounts].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
-                    },
-                    {
-                        type_name: "SelectFilter",
-                        type: "chap_count_max",
-                        name: "до",
-                        state: 0,
-                        values: [['до', ''], ...chapterCounts].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
-                    }
-                ]
-            },
-            {
-                type_name: "GroupFilter",
-                type: "years",
-                name: "Год выпуска",
-                state: [
-                    {
-                        type_name: "SelectFilter",
-                        type: "year_min",
-                        name: "от",
-                        state: 0,
-                        values: [['от', ''], ...years].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
-                    },
-                    {
-                        type_name: "SelectFilter",
-                        type: "year_max",
-                        name: "до",
-                        state: 0,
-                        values: [['до', ''], ...years].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
-                    }
-                ]
-            },
-            {
-                type_name: "GroupFilter",
-                type: "genre",
-                name: "Жанры",
-                state: [
-                    ["Арт", 32], ["Безумие", 91], ["Боевик", 34], ["Боевые искусства", 35], ["Вампиры", 36], ["Военное", 89], ["Гарем", 37], ["Гендерная интрига", 38], ["Героическое фэнтези", 39], ["Демоны", 81], ["Детектив", 40], ["Детское", 88], ["Драма", 43], ["Игра", 44], ["Исекай", 79], ["История", 45], ["Киберпанк", 46], ["Кодомо", 76], ["Комедия", 47], ["Космос", 83], ["Магия", 85], ["Махо-сёдзё", 48], ["Машины", 90], ["Меха", 49], ["Мистика", 50], ["Музыка", 80], ["Научная фантастика", 51], ["Омегаверс", 77], ["Пародия", 86], ["Повседневность", 52], ["Полиция", 82], ["Постапокалиптика", 53], ["Приключения", 54], ["Психология", 55], ["Романтика", 56], ["Самурайский боевик", 57], ["Сверхъестественное", 58], ["Сёдзё", 59], ["Сёдзё-ай", 60], ["Сёнэн-ай", 62], ["Спорт", 63], ["Супер сила", 87], ["Сэйнэн", 64], ["Трагедия", 65], ["Триллер", 66], ["Ужасы", 67], ["Фантастика", 68], ["Фэнтези", 69], ["Хентай", 84], ["Эротика", 71], ["Этти", 72]                    
-                ].map(x => ({ type_name: 'TriState', name: x[0], value: "" + x[1] }))
-            },
-            {
-                type_name: "GroupFilter",
-                type: "status",
-                name: "Статус титула",
-                state: [
-                    ["Онгоинг", 1], ["Завершён", 2], ["Анонс", 3], ["Приостановлен", 4], ["Выпуск прекращён", 5]
-                ].map(x => ({ type_name: 'CheckBox', name: x[0], value: "" + x[1] }))
-            },
-            {
-                type_name: "GroupFilter",
-                type: "translation_status",
-                name: "Статус перевода",
-                state: [
-                    ["Продолжается", 1], ["Завершён", 2], ["Заморожен", 3], ["Заброшен", 4]
-                ].map(x => ({ type_name: 'CheckBox', name: x[0], value: "" + x[1] }))
-            },
-            {
-                type_name: "GroupFilter",
-                type: "format",
-                name: "Формат выпуска",
-                state: [
-                    ["4-кома (Ёнкома)", 1], ["Сборник", 2], ["Додзинси", 3], ["В цвете", 4], ["Сингл", 5], ["Веб", 6], ["Вебтун", 7]
-                ].map(x => ({ type_name: 'TriState', name: x[0], value: "" + x[1] }))
-            },
-            {
-                type_name: "SortFilter",
-                type: "sort",
-                name: "Сортировать",
-                state: { type_name: "SortState", index: 0, ascending: false },
-                values: [
-                    ['По популярности', ''], ['По рейтингу', 'rate_avg'], ['По просмотрам', 'views'], ['Количество глав', 'chap_count'], ['дата релиза', 'releaseDate'], ['дата обновления', 'last_chapter_at'], ['дата добавления', 'created_at'], ['По названию (A-Z)', 'name'], ['По названию (A-Я)', 'rus_name']
-                ].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
-            }
+            { type_name: "GroupFilter", type: "type", name: "Тип", state: [["Манга", 1], ["OEL-манга", 4], ["Манхва", 5], ["Маньхуа", 6], ["Руманга", 8], ["Комикс", 9]].map(function(x){ return { type_name: 'CheckBox', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "GroupFilter", type: "age", name: "Рейтинг", state: [["Нет", 0], ["6+", 1], ["12+", 2], ["16+", 3], ["18+", 4]].map(function(x){ return { type_name: 'CheckBox', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "GroupFilter", type: "chapters", name: "Главы", state: [{ type_name: "SelectFilter", name: "от", state: 0, values: [['от', '']].concat(chapterCounts).map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }, { type_name: "SelectFilter", name: "до", state: 0, values: [['до', '']].concat(chapterCounts).map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }] },
+            { type_name: "GroupFilter", type: "years", name: "Год", state: [{ type_name: "SelectFilter", name: "от", state: 0, values: [['от', '']].concat(years).map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }, { type_name: "SelectFilter", name: "до", state: 0, values: [['до', '']].concat(years).map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }] },
+            { type_name: "GroupFilter", type: "genre", name: "Жанры", state: [["Арт", 32], ["Боевик", 34], ["Боевые искусства", 35], ["Гарем", 37], ["Драма", 43], ["Исекай", 79], ["Комедия", 47], ["Мистика", 50], ["Повседневность", 52], ["Приключения", 54], ["Психология", 55], ["Романтика", 56], ["Сверхъестественное", 58], ["Сёдзё", 59], ["Сэйнэн", 64], ["Триллер", 66], ["Ужасы", 67], ["Фэнтези", 69], ["Эротика", 71], ["Этти", 72]].map(function(x){ return { type_name: 'TriState', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "GroupFilter", type: "status", name: "Статус", state: [["Онгоинг", 1], ["Завершён", 2]].map(function(x){ return { type_name: 'CheckBox', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "GroupFilter", type: "trans", name: "Перевод", state: [["Продолжается", 1], ["Завершён", 2]].map(function(x){ return { type_name: 'CheckBox', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "GroupFilter", type: "format", name: "Формат", state: [["В цвете", 4], ["Вебтун", 7]].map(function(x){ return { type_name: 'TriState', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "SortFilter", type: "sort", name: "Сортировка", state: { type_name: "SortState", index: 0, ascending: false }, values: [['Популярность', ''], ['Рейтинг', 'rate_avg'], ['Просмотры', 'views'], ['Главы', 'chap_count'], ['Обновление', 'last_chapter_at']].map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }
         ];
     }
+
     getSourcePreferences() {
-        return [{
-            key: 'imageServer',
-            listPreference: {
-                title: 'Image Server',
-                summary: '',
-                valueIndex: 0,
-                entries: ['Первый', 'Второй', 'Сжатия', 'Скачивание', 'Crop pages'],
-                entryValues: ['main', 'secondary', 'compress', 'download', 'crop']
-            }
-        }];
+        return [{ key: 'imageServer', listPreference: { title: 'Сервер', summary: '', valueIndex: 0, entries: ['Основной', 'Второй', 'Сжатие'], entryValues: ['main', 'secondary', 'compress'] } }];
     }
 }
 
-function range (first, last, step) {
-    if (last <= first) return [];
-    if (!step) step = 1;
-    if (!last) { last = first; first = 0; }
-    const start = step > 0 ? first : last - 1;
-    let length = Math.ceil((last - first) / Math.abs(step));
-    return Array.from(new Array(length), (x, i) => start + i * step);
+function range(s, e, st) {
+    var a = [];
+    for (var i = s; i <= e; i++) a.push(i);
+    if (st < 0) a.reverse();
+    return a;
 }
 
-// Инициализация расширения для Anymex
+// ЭТО САМАЯ ВАЖНАЯ СТРОКА ДЛЯ ANYMEX
 const extention = new DefaultExtension();
