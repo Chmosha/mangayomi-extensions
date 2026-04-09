@@ -1,15 +1,4 @@
-const mangayomiSources = [{
-    "name": "Mangalib",
-    "lang": "ru",
-    "baseUrl": "https://mangalib.me",
-    "apiUrl": "https://api.lib.social/api",
-    "iconUrl": "https://mangalib.org/static/images/logo/ml/icon-180.png",
-    "typeSource": "single",
-    "isManga": true,
-    "isNsfw": true,
-    "version": "0.1.0",
-    "pkgPath": "manga/src/ru/mangalib.js"
-}];
+const mangayomiSources = [{"name":"Mangalib","lang":"ru","baseUrl":"https://mangalib.me","apiUrl":"https://api.lib.social/api","iconUrl":"https://mangalib.org/static/images/logo/ml/icon-180.png","typeSource":"single","itemType":0,"version":"0.1.6","pkgPath":"manga/src/ru/mangalib.js","isNsfw":true,"hasCloudflare":false}];
 
 class DefaultExtension extends MProvider {
     constructor () {
@@ -75,11 +64,8 @@ class DefaultExtension extends MProvider {
     async getPageList(url) {
         const res = await this.client.get(url, this.apiHeaders);
         const chapter = JSON.parse(res.body).data;
-
-        // Получаем сервер из констант (по умолчанию main)
         const constRes = await this.client.get(`${this.source.apiUrl}/constants?fields[]=imageServers`, this.apiHeaders);
         const servers = JSON.parse(constRes.body).data.imageServers;
-        
         const prefServer = new SharedPreferences().get('imageServer') || 'main';
         const selectedServer = servers.find(s => s.id === prefServer)?.url || servers[0].url;
 
@@ -89,20 +75,7 @@ class DefaultExtension extends MProvider {
         }));
     }
 
-    getFilterList() {
-        return [{
-            type_name: "SortFilter",
-            type: "sort",
-            name: "Сортировка",
-            state: { index: 0, ascending: false },
-            values: [
-                { name: 'По популярности', value: 'views' },
-                { name: 'По рейтингу', value: 'rate_avg' },
-                { name: 'Обновлено', value: 'last_chapter_at' }
-            ]
-        }];
-    }
-
+    getFilterList() { return []; }
     getSourcePreferences() {
         return [{
             key: 'imageServer',
