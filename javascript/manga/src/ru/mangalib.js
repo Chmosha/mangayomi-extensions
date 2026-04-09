@@ -1,10 +1,10 @@
-var mangayomiSources = [{"name":"Mangalib","id":737631136,"baseUrl":"https://mangalib.me","lang":"ru","typeSource":"single","iconUrl":"https://mangalib.org/static/images/logo/ml/icon-180.png","dateFormat":"","dateFormatLocale":"","isNsfw":true,"hasCloudflare":false,"sourceCodeUrl":"https://raw.githubusercontent.com/Chmosha/mangayomi-extensions/main/manga/src/ru/mangalib.js","apiUrl":"https://api.lib.social/api","version":"0.3.5","isManga":true,"itemType":0,"isFullData":false,"appMinVerReq":"0.5.0","additionalParams":"","sourceCodeLanguage":1,"notes":""}];
+var mangayomiSources = [{"name":"Mangalib","id":737631136,"baseUrl":"https://mangalib.me","lang":"ru","typeSource":"single","iconUrl":"https://mangalib.org/static/images/logo/ml/icon-180.png","dateFormat":"","dateFormatLocale":"","isNsfw":true,"hasCloudflare":false,"sourceCodeUrl":"https://raw.githubusercontent.com/Chmosha/mangayomi-extensions/main/manga/src/ru/mangalib.js","apiUrl":"https://api.lib.social/api","version":"0.4.0","isManga":true,"itemType":0,"isFullData":false,"appMinVerReq":"0.5.0","additionalParams":"","sourceCodeLanguage":1,"notes":""}];
 
 class DefaultExtension extends MProvider {
-    constructor() {
+    constructor () {
         super();
         this.client = new Client();
-        // ВАЖНО: Не используем this.source здесь, чтобы не было ошибки "not initialized"
+        this.apiBase = "https://api.lib.social/api";
         this.headers = {
             'accept': 'application/json, text/plain, */*',
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -36,50 +36,34 @@ class DefaultExtension extends MProvider {
     }
 
     async getPopular(page) {
-        return await this.parseMangaList("https://api.lib.social/api/manga?page=" + page + "&sort_by=views");
+        return await this.parseMangaList(this.apiBase + "/manga?page=" + page + "&sort_by=views");
     }
 
     async getLatestUpdates(page) {
-        return await this.parseMangaList("https://api.lib.social/api/manga?page=" + page + "&sort_by=last_chapter_at");
+        return await this.parseMangaList(this.apiBase + "/manga?page=" + page + "&sort_by=last_chapter_at");
     }
 
     async search(query, page, filters) {
-        var url = "https://api.lib.social/api/manga?q=" + encodeURIComponent(query);
+        var url = this.apiBase + "/manga?q=" + encodeURIComponent(query) + "&page=" + page;
         
-        if (!filters || filters.length === 0) {
-            return await this.parseMangaList(url + "&page=" + page);
-        }
+        if (!filters || filters.length === 0) return await this.parseMangaList(url);
 
-        // Фильтры по списку (как в оригинале)
+        // Filter 0: Types
         if (filters[0] && filters[0].state) {
-            for (var i = 0; i < filters[0].state.length; i++) {
-                if (filters[0].state[i].state) url += "&types[]=" + filters[0].state[i].value;
-            }
+            filters[0].state.forEach(function(f) { if (f.state) url += "&types[]=" + f.value; });
         }
+        // Filter 1: Age
         if (filters[1] && filters[1].state) {
-            for (var i = 0; i < filters[1].state.length; i++) {
-                if (filters[1].state[i].state) url += "&caution[]=" + filters[1].state[i].value;
-            }
+            filters[1].state.forEach(function(f) { if (f.state) url += "&caution[]=" + f.value; });
         }
-        
-        // Главы и Год
-        if (filters[2] && filters[2].state) {
-            var minCh = filters[2].state[0].values[filters[2].state[0].state].value;
-            var maxCh = filters[2].state[1].values[filters[2].state[1].state].value;
-            if (minCh) url += "&chap_count_min=" + minCh;
-            if (maxCh) url += "&chap_count_max=" + maxCh;
-        }
-
-        // Жанры (TriState)
+        // Filter 4: Genres (TriState)
         if (filters[4] && filters[4].state) {
-            for (var i = 0; i < filters[4].state.length; i++) {
-                var f = filters[4].state[i];
+            filters[4].state.forEach(function(f) {
                 if (f.state === 1) url += "&genres[]=" + f.value;
                 else if (f.state === 2) url += "&genres_exclude[]=" + f.value;
-            }
+            });
         }
-
-        // Сортировка
+        // Filter 8: Sort
         if (filters[8]) {
             var sortVal = filters[8].values[filters[8].state.index].value;
             var sortType = filters[8].state.ascending ? 'asc' : 'desc';
@@ -87,12 +71,12 @@ class DefaultExtension extends MProvider {
             url += "&sort_type=" + sortType;
         }
 
-        return await this.parseMangaList(url + "&page=" + page);
+        return await this.parseMangaList(url);
     }
 
     async getDetail(link) {
-        var infoRes = await this.client.get("https://api.lib.social/api/manga/" + link + "?fields[]=summary&fields[]=genres&fields[]=authors&fields[]=artists&fields[]=status", this.headers);
-        var chapterRes = await this.client.get("https://api.lib.social/api/manga/" + link + "/chapters", this.headers);
+        var infoRes = await this.client.get(this.apiBase + "/manga/" + link + "?fields[]=summary&fields[]=genres&fields[]=authors&fields[]=artists&fields[]=status", this.headers);
+        var chapterRes = await this.client.get(this.apiBase + "/manga/" + link + "/chapters", this.headers);
         
         var info = JSON.parse(infoRes.body).data;
         var chapters = JSON.parse(chapterRes.body).data;
@@ -120,14 +104,12 @@ class DefaultExtension extends MProvider {
     async getPageList(url) {
         var pref = new SharedPreferences();
         var serverId = pref.get('imageServer') || 'main';
-
-        var constRes = await this.client.get("https://api.lib.social/api/constants?fields[]=imageServers", this.headers);
+        var constRes = await this.client.get(this.apiBase + "/constants?fields[]=imageServers", this.headers);
         var servers = JSON.parse(constRes.body).data.imageServers;
         var selectedUrl = servers[0].url;
         for (var i = 0; i < servers.length; i++) {
             if (servers[i].id === serverId) { selectedUrl = servers[i].url; break; }
         }
-
         var res = await this.client.get(url, this.headers);
         var chapter = JSON.parse(res.body).data;
         var h = this.headers;
@@ -144,11 +126,13 @@ class DefaultExtension extends MProvider {
             { type_name: "GroupFilter", type: "age", name: "Рейтинг", state: [["Нет", 0], ["6+", 1], ["12+", 2], ["16+", 3], ["18+", 4]].map(function(x){ return { type_name: 'CheckBox', name: x[0], value: "" + x[1] }; }) },
             { type_name: "GroupFilter", type: "chapters", name: "Главы", state: [{ type_name: "SelectFilter", name: "от", state: 0, values: [['от', '']].concat(chapterCounts).map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }, { type_name: "SelectFilter", name: "до", state: 0, values: [['до', '']].concat(chapterCounts).map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }] },
             { type_name: "GroupFilter", type: "years", name: "Год", state: [{ type_name: "SelectFilter", name: "от", state: 0, values: [['от', '']].concat(years).map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }, { type_name: "SelectFilter", name: "до", state: 0, values: [['до', '']].concat(years).map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }] },
-            { type_name: "GroupFilter", type: "genre", name: "Жанры", state: [["Арт", 32], ["Боевик", 34], ["Боевые искусства", 35], ["Гарем", 37], ["Драма", 43], ["Исекай", 79], ["Комедия", 47], ["Мистика", 50], ["Повседневность", 52], ["Приключения", 54], ["Психология", 55], ["Романтика", 56], ["Сверхъестественное", 58], ["Сёдзё", 59], ["Сэйнэн", 64], ["Триллер", 66], ["Ужасы", 67], ["Фэнтези", 69], ["Эротика", 71], ["Этти", 72]].map(function(x){ return { type_name: 'TriState', name: x[0], value: "" + x[1] }; }) },
-            { type_name: "GroupFilter", type: "status", name: "Статус", state: [["Онгоинг", 1], ["Завершён", 2]].map(function(x){ return { type_name: 'CheckBox', name: x[0], value: "" + x[1] }; }) },
-            { type_name: "GroupFilter", type: "trans", name: "Перевод", state: [["Продолжается", 1], ["Завершён", 2]].map(function(x){ return { type_name: 'CheckBox', name: x[0], value: "" + x[1] }; }) },
-            { type_name: "GroupFilter", type: "format", name: "Формат", state: [["В цвете", 4], ["Вебтун", 7]].map(function(x){ return { type_name: 'TriState', name: x[0], value: "" + x[1] }; }) },
-            { type_name: "SortFilter", type: "sort", name: "Сортировка", state: { type_name: "SortState", index: 0, ascending: false }, values: [['Популярность', ''], ['Рейтинг', 'rate_avg'], ['Просмотры', 'views'], ['Главы', 'chap_count'], ['Обновление', 'last_chapter_at']].map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }
+            { type_name: "GroupFilter", type: "genre", name: "Жанры", state: [
+                ["Арт", 32], ["Безумие", 91], ["Боевик", 34], ["Боевые искусства", 35], ["Вампиры", 36], ["Военное", 89], ["Гарем", 37], ["Гендерная интрига", 38], ["Героическое фэнтези", 39], ["Демоны", 81], ["Детектив", 40], ["Детское", 88], ["Драма", 43], ["Игра", 44], ["Исекай", 79], ["История", 45], ["Киберпанк", 46], ["Кодомо", 76], ["Комедия", 47], ["Космос", 83], ["Магия", 85], ["Махо-сёдзё", 48], ["Машины", 90], ["Меха", 49], ["Мистика", 50], ["Музыка", 80], ["Научная фантастика", 51], ["Омегаверс", 77], ["Пародия", 86], ["Повседневность", 52], ["Полиция", 82], ["Постапокалиптика", 53], ["Приключения", 54], ["Психология", 55], ["Романтика", 56], ["Самурайский боевик", 57], ["Сверхъестественное", 58], ["Сёдзё", 59], ["Сёдзё-ай", 60], ["Сёнэн-ай", 62], ["Спорт", 63], ["Супер сила", 87], ["Сэйнэн", 64], ["Трагедия", 65], ["Триллер", 66], ["Ужасы", 67], ["Фантастика", 68], ["Фэнтези", 69], ["Хентай", 84], ["Эротика", 71], ["Этти", 72]
+            ].map(function(x){ return { type_name: 'TriState', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "GroupFilter", type: "status", name: "Статус", state: [["Онгоинг", 1], ["Завершён", 2], ["Анонс", 3], ["Приостановлен", 4], ["Выпуск прекращён", 5]].map(function(x){ return { type_name: 'CheckBox', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "GroupFilter", type: "trans", name: "Перевод", state: [["Продолжается", 1], ["Завершён", 2], ["Заморожен", 3], ["Заброшен", 4]].map(function(x){ return { type_name: 'CheckBox', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "GroupFilter", type: "format", name: "Формат", state: [["4-кома", 1], ["Сборник", 2], ["Додзинси", 3], ["В цвете", 4], ["Сингл", 5], ["Веб", 6], ["Вебтун", 7]].map(function(x){ return { type_name: 'TriState', name: x[0], value: "" + x[1] }; }) },
+            { type_name: "SortFilter", type: "sort", name: "Сортировка", state: { type_name: "SortState", index: 0, ascending: false }, values: [['Популярность', ''], ['Рейтинг', 'rate_avg'], ['Просмотры', 'views'], ['Главы', 'chap_count'], ['Обновление', 'last_chapter_at'], ['Название', 'name']].map(function(x){ return { type_name: 'SelectOption', name: x[0], value: x[1] }; }) }
         ];
     }
 
@@ -159,10 +143,10 @@ class DefaultExtension extends MProvider {
 
 function range(s, e, st) {
     var a = [];
-    for (var i = s; i <= e; i++) a.push(i);
-    if (st < 0) a.reverse();
+    if (st > 0) { for (var i = s; i <= e; i += st) a.push(i); }
+    else { for (var i = e; i >= s; i += st) a.push(i); }
     return a;
 }
 
-// ЭТО САМАЯ ВАЖНАЯ СТРОКА ДЛЯ ANYMEX
-const extention = new DefaultExtension();
+// ИНИЦИАЛИЗАЦИЯ (Используем var для глобального доступа)
+var extention = new DefaultExtension();
