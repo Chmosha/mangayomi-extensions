@@ -1,89 +1,370 @@
-const mangayomiSources = [{"name":"Mangalib","lang":"ru","baseUrl":"https://mangalib.me","apiUrl":"https://api.lib.social/api","iconUrl":"https://mangalib.org/static/images/logo/ml/icon-180.png","typeSource":"single","itemType":0,"version":"0.1.7","pkgPath":"manga/src/ru/mangalib.js","isNsfw":true,"hasCloudflare":false}];
+const mangayomiSources = [{
+    "name": "Mangalib",
+    "lang": "ru",
+    "baseUrl": "https://mangalib.me",
+    "apiUrl": "https://api.lib.social/api",
+    "iconUrl": "https://mangalib.org/static/images/logo/ml/icon-180.png",
+    "typeSource": "single",
+    "itemType": 0,
+    "isManga": true,
+    "isNsfw": true,
+    "version": "0.2.0",
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "pkgPath": "manga/src/ru/mangalib.js"
+}];
 
-class Mangalib extends MProvider {
-    constructor() {
+class DefaultExtension extends MProvider {
+    constructor () {
         super();
         this.client = new Client();
         this.apiHeaders = {
-            'Referer': 'https://mangalib.me/',
-            'Accept': 'application/json, text/plain, */*',
+            'accept': 'application/json, text/plain, */*',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Site-Id': '1',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            'Referer': 'https://mangalib.me/'
         };
     }
-
+    parseStatus(status) {
+        return {
+            "Онгоинг": 0,
+            "Завершён": 1,
+            "Приостановлен": 2,
+            "Выпуск прекращён": 3,
+            "Анонс": 4
+        }[status] ?? 5;
+    }
     async parseMangaList(url) {
         const res = await this.client.get(url, this.apiHeaders);
         const json = JSON.parse(res.body);
-        const list = json.data.map(manga => ({
+        let mangas = json.data.map(manga => ({
             name: manga.rus_name || manga.name,
             imageUrl: manga.cover?.default || manga.cover?.main,
             link: manga.slug_url || manga.slug
         }));
-        return { "list": list, "hasNextPage": !!json.links?.next };
+        return { "list": mangas, "hasNextPage": !!json.links?.next };
     }
-
     async getPopular(page) {
-        return await this.parseMangaList(`${this.source.apiUrl}/manga?page=${page}&sort_by=views`);
+        return await this.parseMangaList(this.source.apiUrl + `/manga?page=${page}&sort_by=views`);
     }
-
     async getLatestUpdates(page) {
-        return await this.parseMangaList(`${this.source.apiUrl}/manga?page=${page}&sort_by=last_chapter_at`);
+        return await this.parseMangaList(this.source.apiUrl + `/manga?page=${page}&sort_by=last_chapter_at`);
     }
-
     async search(query, page, filters) {
-        let url = `${this.source.apiUrl}/manga?q=${encodeURIComponent(query)}&page=${page}`;
-        return await this.parseMangaList(url);
-    }
+        let url = `${this.source.apiUrl}/manga?q=${encodeURIComponent(query)}`
+        
+        if (!filters || filters.length == 0) {
+            return await this.parseMangaList(url + `&page=${page}`);
+        }
+        
+        // 0: Тип (CheckBox)
+        for (const filter of filters[0].state) {
+            if (filter.state == true) url += `&types[]=${filter.value}`;
+        }
+        // 1: Возрастной рейтинг (CheckBox)
+        for (const filter of filters[1].state) {
+            if (filter.state == true) url += `&caution[]=${filter.value}`;
+        }
 
+        // 2: Количество глав (Select)
+        const minChapF = filters[2].state[0];
+        const maxChapF = filters[2].state[1];
+        const minChap = minChapF.values[minChapF.state].value;
+        const maxChap = maxChapF.values[maxChapF.state].value;
+        url += minChap ? `&chap_count_min=${minChap}` : '';
+        url += maxChap ? `&chap_count_max=${maxChap}` : '';
+
+        // 3: Год (Select)
+        const minYearF = filters[3].state[0];
+        const maxYearF = filters[3].state[1];
+        const minYear = minYearF.values[minYearF.state].value;
+        const maxYear = maxYearF.values[maxYearF.state].value;
+        url += minYear ? `&year_min=${minYear}` : '';
+        url += maxYear ? `&year_max=${maxYear}` : '';
+
+        // 4: Жанры (TriState)
+        for (const filter of filters[4].state) {
+            if (filter.state == 1) url += `&genres[]=${filter.value}`;
+            else if (filter.state == 2) url += `&genres_exclude[]=${filter.value}`;
+        }
+        // 5: Статус (CheckBox)
+        for (const filter of filters[5].state) {
+            if (filter.state == true) url += `&status[]=${filter.value}`;
+        }
+        // 6: Статус перевода (CheckBox)
+        for (const filter of filters[6].state) {
+            if (filter.state == true) url += `&scanlate_status[]=${filter.value}`;
+        }
+        // 7: Формат (TriState)
+        for (const filter of filters[7].state) {
+            if (filter.state == 1) url += `&format[]=${filter.value}`;
+            else if (filter.state == 2) url += `&format_exclude[]=${filter.value}`;
+        }
+        
+        // 8: Сортировка
+        const sortVal = filters[8].values[filters[8].state.index].value;
+        const sortType = filters[8].state.ascending ? 'asc' : 'desc';
+        if (sortVal) url += `&sort_by=${sortVal}`;
+        url += `&sort_type=${sortType}`;
+
+        return await this.parseMangaList(url + `&page=${page}`);
+    }
     async getDetail(url) {
-        const infoRes = await this.client.get(`${this.source.apiUrl}/manga/${url}?fields[]=summary&fields[]=genres&fields[]=authors&fields[]=status`, this.apiHeaders);
+        const infoRes = await this.client.get(`${this.source.apiUrl}/manga/${url}?fields[]=chap_count&fields[]=summary&fields[]=genres&fields[]=authors&fields[]=artists&fields[]=status`, this.apiHeaders);
         const chapterRes = await this.client.get(`${this.source.apiUrl}/manga/${url}/chapters`, this.apiHeaders);
+        
         const info = JSON.parse(infoRes.body).data;
         const chapters = JSON.parse(chapterRes.body).data;
-        const statusMap = { "Онгоинг": 0, "Завершён": 1, "Приостановлен": 2, "Выпуск прекращён": 3, "Анонс": 4 };
-
+        const chapterBaseUrl = `${this.source.apiUrl}/manga/${url}/chapter`;
+        
         return {
             name: info.rus_name || info.name,
-            imageUrl: info.cover?.default,
+            imageUrl: info.cover?.default || info.cover?.main,
             author: info.authors?.map(x => x.name).join(', '),
-            status: statusMap[info.status?.label] ?? 5,
+            artist: info.artists?.map(x => x.name).join(', '),
+            status: this.parseStatus(info.status?.label),
             description: info.summary,
             genre: info.genres?.map(x => x.name),
             chapters: chapters.map(c => ({
-                name: `Том ${c.volume} Глава ${c.number}${c.name ? ': ' + c.name : ''}`,
-                url: `${this.source.apiUrl}/manga/${url}/chapter?number=${c.number}&volume=${c.volume}`,
+                name: `Том ${c.volume} Глава ${c.number}` + (c.name ? `: ${c.name}` : ''),
+                url: `${chapterBaseUrl}?number=${c.number}&volume=${c.volume}`,
                 dateUpload: c.branches?.[0]?.created_at ? new Date(c.branches[0].created_at).valueOf().toString() : null,
                 scanlator: c.branches?.[0]?.teams?.map(x => x.name).join(', ')
             })).reverse()
         };
     }
-
     async getPageList(url) {
-        const res = await this.client.get(url, this.apiHeaders);
+        const serverId = new SharedPreferences().get('imageServer') || 'main';
+
+        let res = await this.client.get(`${this.source.apiUrl}/constants?fields[]=imageServers`, this.apiHeaders);
+        const imageServers = JSON.parse(res.body).data.imageServers;
+        const imageServer = imageServers.find(x => x.id == serverId)?.url || imageServers[0].url;
+
+        res = await this.client.get(url, this.apiHeaders);
         const chapter = JSON.parse(res.body).data;
-        const constRes = await this.client.get(`${this.source.apiUrl}/constants?fields[]=imageServers`, this.apiHeaders);
-        const servers = JSON.parse(constRes.body).data.imageServers;
-        const prefServer = new SharedPreferences().get('imageServer') || 'main';
-        const selectedServer = servers.find(s => s.id === prefServer)?.url || servers[0].url;
-
-        return chapter.pages.map(img => ({
-            url: selectedServer + img.url,
-            headers: this.apiHeaders
-        }));
+        return chapter.pages.map(img => ({url: imageServer + img.url, headers: this.apiHeaders}));
     }
-
-    getFilterList() { return []; }
-    getSourcePreferences() {
-        return [{
-            key: 'imageServer',
-            listPreference: {
-                title: 'Сервер изображений',
-                summary: '',
-                valueIndex: 0,
-                entries: ['Основной', 'Второй', 'Сжатие'],
-                entryValues: ['main', 'secondary', 'compress']
+    getFilterList() {
+        const chapterCounts = ['1','5','10','20','30','40','50','100','200','500','1000','2000','5000','10000'].map(x => [x, x]);
+        const years = [...range(1980, new Date().getFullYear() + 1, -1), ...range(1930, 1971, -10)].map(x => {
+            x = x.toString();
+            return [x, x];
+        });
+        return [
+            {
+                type_name: "GroupFilter",
+                type: "type",
+                name: "Тип",
+                state: [
+                    ["Манга", 1],
+                    ["OEL-манга", 4],
+                    ["Манхва", 5],
+                    ["Маньхуа", 6],
+                    ["Руманга", 8],
+                    ["Комикс", 9]
+                ].map(x => ({ type_name: 'CheckBox', name: x[0], value: `${x[1]}` }))
+            },
+            {
+                type_name: "GroupFilter",
+                type: "age_restriction",
+                name: "возрастной рейтинг",
+                state: [
+                    ["Нет", 0],
+                    ["6+", 1],
+                    ["12+", 2],
+                    ["16+", 3],
+                    ["18+", 4]
+                ].map(x => ({ type_name: 'CheckBox', name: x[0], value: `${x[1]}` }))
+            },
+            {
+                type_name: "GroupFilter",
+                type: "chapter_count",
+                name: "Количество глав",
+                state: [
+                    {
+                        type_name: "SelectFilter",
+                        type: "chap_count_min",
+                        name: "от",
+                        state: 0,
+                        values: [['от', ''], ...chapterCounts].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
+                    },
+                    {
+                        type_name: "SelectFilter",
+                        type: "chap_count_max",
+                        name: "до",
+                        state: 0,
+                        values: [['до', ''], ...chapterCounts].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
+                    }
+                ]
+            },
+            {
+                type_name: "GroupFilter",
+                type: "years",
+                name: "Год выпуска",
+                state: [
+                    {
+                        type_name: "SelectFilter",
+                        type: "year_min",
+                        name: "от",
+                        state: 0,
+                        values: [['от', ''], ...years].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
+                    },
+                    {
+                        type_name: "SelectFilter",
+                        type: "year_max",
+                        name: "до",
+                        state: 0,
+                        values: [['до', ''], ...years].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
+                    }
+                ]
+            },
+            {
+                type_name: "GroupFilter",
+                type: "genre",
+                name: "Жанры",
+                state: [
+                    ["Арт", 32, false],
+                    ["Безумие", 91, false],
+                    ["Боевик", 34, false],
+                    ["Боевые искусства", 35, false],
+                    ["Вампиры", 36, false],
+                    ["Военное", 89, false],
+                    ["Гарем", 37, false],
+                    ["Гендерная интрига", 38, false],
+                    ["Героическое фэнтези", 39, false],
+                    ["Демоны", 81, false],
+                    ["Детектив", 40, false],
+                    ["Детское", 88, false],
+                    ["Драма", 43, false],
+                    ["Игра", 44, false],
+                    ["Исекай", 79, false],
+                    ["История", 45, false],
+                    ["Киберпанк", 46, false],
+                    ["Кодомо", 76, false],
+                    ["Комедия", 47, false],
+                    ["Космос", 83, false],
+                    ["Магия", 85, false],
+                    ["Махо-сёдзё", 48, false],
+                    ["Машины", 90, false],
+                    ["Меха", 49, false],
+                    ["Мистика", 50, false],
+                    ["Музыка", 80, false],
+                    ["Научная фантастика", 51, false],
+                    ["Омегаверс", 77, false],
+                    ["Пародия", 86, false],
+                    ["Повседневность", 52, false],
+                    ["Полиция", 82, false],
+                    ["Постапокалиптика", 53, false],
+                    ["Приключения", 54, false],
+                    ["Психология", 55, false],
+                    ["Романтика", 56, false],
+                    ["Самурайский боевик", 57, false],
+                    ["Сверхъестественное", 58, false],
+                    ["Сёдзё", 59, false],
+                    ["Сёдзё-ай", 60, false],
+                    ["Сёнэн-ай", 62, true],
+                    ["Спорт", 63, false],
+                    ["Супер сила", 87, false],
+                    ["Сэйнэн", 64, false],
+                    ["Трагедия", 65, false],
+                    ["Триллер", 66, false],
+                    ["Ужасы", 67, false],
+                    ["Фантастика", 68, false],
+                    ["Фэнтези", 69, false],
+                    ["Хентай", 84, false],
+                    ["Эротика", 71, true],
+                    ["Этти", 72, false]                    
+                ].map(x => ({ type_name: 'TriState', name: x[0], value: `${x[1]}` }))
+            },
+            {
+                type_name: "GroupFilter",
+                type: "status",
+                name: "Статус титула",
+                state: [
+                    ["Онгоинг", 1],
+                    ["Завершён", 2],
+                    ["Анонс", 3],
+                    ["Приостановлен", 4],
+                    ["Выпуск прекращён", 5]
+                ].map(x => ({ type_name: 'CheckBox', name: x[0], value: `${x[1]}` }))
+            },
+            {
+                type_name: "GroupFilter",
+                type: "translation_status",
+                name: "Статус перевода",
+                state: [
+                    ["Продолжается", 1],
+                    ["Завершён", 2],
+                    ["Заморожен", 3],
+                    ["Заброшен", 4]
+                ].map(x => ({ type_name: 'CheckBox', name: x[0], value: `${x[1]}` }))
+            },
+            {
+                type_name: "GroupFilter",
+                type: "format",
+                name: "Формат выпуска",
+                state: [
+                    ["4-кома (Ёнкома)", 1],
+                    ["Сборник", 2],
+                    ["Додзинси", 3],
+                    ["В цвете", 4],
+                    ["Сингл", 5],
+                    ["Веб", 6],
+                    ["Вебтун", 7]
+                ].map(x => ({ type_name: 'TriState', name: x[0], value: `${x[1]}` }))
+            },
+            {
+                type_name: "SortFilter",
+                type: "sort",
+                name: "Сортировать",
+                state: {
+                    type_name: "SortState",
+                    index: 0,
+                    ascending: false
+                },
+                values: [
+                    ['По популярности', ''],
+                    ['По рейтингу', 'rate_avg'],
+                    ['По просмотрам', 'views'],
+                    ['Количество глав', 'chap_count'],
+                    ['дата релиза', 'releaseDate'],
+                    ['дата обновления', 'last_chapter_at'],
+                    ['дата добавления', 'created_at'],
+                    ['По названию (A-Z)', 'name'],
+                    ['По названию (A-Я)', 'rus_name']
+                ].map(x => ({ type_name: 'SelectOption', name: x[0], value: x[1] }))
             }
-        }];
+        ];
     }
+    getSourcePreferences() {
+        const imageServers = ['Первый', 'Второй', 'Сжатия', 'Скачивание', 'Crop pages'];
+        const imageServerValuess = ['main', 'secondary', 'compress', 'download', 'crop'];
+         return [
+            {
+                key: 'imageServer',
+                listPreference: {
+                    title: 'Image Server',
+                    summary: '',
+                    valueIndex: 0,
+                    entries: imageServers,
+                    entryValues: imageServerValuess
+                }
+            }
+        ];
+    }
+}
+
+function range (first, last, step) {
+    if (last <= first)
+        return [];
+    if (!step) {
+        step = 1;
+    }
+    if (!last) {
+        last = first;
+        first = 0;
+    }
+    const start = step > 0 ? first : last - 1;
+    let length = Math.ceil((last - first) / Math.abs(step));
+    return Array.from(new Array(length), (x, i) => start + i * step);
 }
