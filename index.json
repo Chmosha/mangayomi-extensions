@@ -9,9 +9,7 @@
       "typeSource": "single",
       "isManga": true,
       "isNsfw": true,
-      "version": "0.0.5",
-      "dateFormat": "",
-      "dateFormatLocale": "",
+      "version": "0.1.0",
       "pkgPath": "manga/src/ru/mangalib.js"
     }
   ]
